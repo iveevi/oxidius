@@ -17,7 +17,59 @@ statement = $(a + b = b + a)
 predicate := statement
 )";
 
+template <typename F>
+struct __optional_returner : std::false_type {};
+
+template <typename R, typename ... Args>
+struct __optional_returner <std::function <std::optional <R> (Args...)>> : std::true_type {
+	using result = R;
+};
+
+#define hacked(T) *reinterpret_cast <T *> ((void *) nullptr)
+
+template <typename F>
+using optional_returner = __optional_returner <decltype(std::function(hacked(F)))>;
+
+template <typename F>
+constexpr bool optional_returner_v = optional_returner <F> ::value;
+
+template <size_t N>
+struct string_literal {
+	char value[N];
+
+	constexpr string_literal(const char (&str)[N]) {
+		std::copy_n(str, N, value);
+	}
+};
+
+template <size_t N>
+std::optional <std::string> raw_expanded(const string_literal <N> &raw, const std::string &source, size_t &i)
+{
+	for (size_t n = 0; n < N - 1; n++) {
+		if (source[n + i] != raw.value[n])
+			return std::nullopt;
+	}
+
+	i += N - 1;
+
+	return "?";
+}
+
+template <string_literal s, typename T>
+std::optional <T> raw(const std::string &source, size_t &i)
+{
+	if (auto r = raw_expanded(s, source, i)) {
+		if constexpr (std::is_constructible_v <T, std::string>)
+			return T(r.value());
+		else
+			return T();
+	}
+
+	return std::nullopt;
+}
+
 // Tokens
+struct null {};
 struct kwd_in {};
 struct sym_dollar {};
 struct sym_colon_equals {};
@@ -29,17 +81,132 @@ struct sym_left_paren {};
 struct sym_right_paren {};
 struct sym_comma {};
 
-struct identifier : std::string {
+struct misc_identifier : std::string {
 	using std::string::string;
+
+	misc_identifier(const std::string &s) : std::string(s) {}
 };
 
-using Token = variant <
-	kwd_in, sym_dollar, sym_colon_equals, sym_equals,
-	sym_left_brace, sym_right_brace,
-	sym_left_paren, sym_right_paren,
-	sym_plus, sym_comma,
-	identifier
->;
+std::optional <null> space(const std::string &source, size_t &i)
+{
+	if (std::isspace(source[i])) {
+		i++;
+		return {};
+	}
+
+	return std::nullopt;
+}
+
+std::optional <misc_identifier> identifier(const std::string &source, size_t &i)
+{
+	size_t j = i;
+
+	std::string id;
+	while (std::isalpha(source[j])) {
+		id += source[j++];
+	}
+
+	if (id.empty())
+		return std::nullopt;
+
+	i = j;
+
+	return misc_identifier(id);
+}
+
+template <typename F>
+concept lexer_fn = optional_returner_v <F>
+		&& requires(const F &f,
+			    const std::string &source,
+			    size_t &i) {
+	{ f(source, i) };
+};
+
+template <typename T, typename... Rest>
+constexpr bool has_duplicates()
+{
+	if constexpr (sizeof...(Rest) == 0)
+		return false;
+	else
+		return (std::is_same_v <T, Rest> || ...) || has_duplicates <Rest...> ();
+}
+
+static_assert(has_duplicates <int, double, float, char> () == false);
+static_assert(has_duplicates <int, double, int, char> () == true);
+
+template <lexer_fn ... Fs>
+constexpr bool valid_lexer_group()
+{
+	return !has_duplicates <typename optional_returner <Fs> ::result...> ();
+}
+
+template <lexer_fn ... Fs>
+struct lexer_group {
+	static_assert(valid_lexer_group <Fs...> (),
+		"lexers in lexer_group(...) "
+		"must produce distinct types");
+
+	// TODO: variant...
+	using element_t = variant <typename optional_returner <Fs> ::result...>;
+	using result_t = std::vector <element_t>;
+
+	std::tuple <Fs...> fs;
+
+	lexer_group(const Fs &... fs_) : fs(fs_...) {}
+
+	// TODO: compare element index...
+	
+	template <size_t I>
+	bool eval_i(result_t &result, const std::string &source, size_t &i) const {
+		if constexpr (I >= sizeof...(Fs)) {
+			return false;
+		} else {
+			auto fv = std::get <I> (fs)(source, i);
+			if (fv) {
+				result.push_back(fv.value());
+				return true;
+			}
+
+			return eval_i <I + 1> (result, source, i);
+		}
+	}
+
+	std::optional <result_t> operator()(const std::string &s, size_t &i) const {
+		size_t old = i;
+
+		result_t result;
+
+		while (eval_i <0> (result, s, i)) {}
+
+		if (i == s.size())
+			return result;
+
+		i = old;
+
+		return std::nullopt;
+	}
+};
+
+template <lexer_fn ... Fs>
+auto lexer(const Fs &... args)
+{
+	return lexer_group(std::function(args)...);
+}
+
+static const auto oxidius_lexer = lexer(space,
+	raw <"{", sym_left_brace>,
+	raw <"}", sym_right_brace>,
+	raw <"(", sym_right_paren>,
+	raw <")", sym_left_paren>,
+	raw <"$", sym_dollar>,
+	raw <":=", sym_colon_equals>,
+	raw <"=", sym_equals>,
+	raw <"+", sym_plus>,
+	raw <"in", kwd_in>,
+	raw <",", sym_comma>,
+	identifier);
+
+using Token = typename decltype(oxidius_lexer)::element_t;
 
 std::string format_as(const Token &token)
 {
@@ -64,77 +231,11 @@ std::string format_as(const Token &token)
 		return "<sym: '+'>";
 	variant_case(Token, sym_comma):
 		return "<sym: ','>";
-	variant_case(Token, identifier):
-		return "<identifier: '" + token.as <identifier> () + "'>";
+	variant_case(Token, misc_identifier):
+		return "<identifier: '" + token.as <misc_identifier> () + "'>";
 	}
 
 	return "?";
-}
-
-std::optional <Token> lex_special(const std::string &s, size_t &i, char c)
-{
-	switch (c) {
-	case '{':
-		return sym_left_brace();
-	case '}':
-		return sym_right_brace();
-	case '(':
-		return sym_left_paren();
-	case ')':
-		return sym_right_paren();
-	case '$':
-		return sym_dollar();
-	case ',':
-		return sym_comma();
-	case ':':
-		if (s[i] == '=') {
-			i++;
-			return sym_colon_equals();
-		}
-
-		break;
-	case '=':
-		return sym_equals();
-	case '+':
-		return sym_plus();
-	default:
-		break;
-	}
-
-	howl_error("unexpected character '{}'", c);
-
-	return std::nullopt;
-}
-
-std::vector <Token> lex(const std::string &s)
-{
-	std::vector <Token> result;
-
-	size_t i = 0;
-	while (i < s.size()) {
-		auto &c = s[i++];
-
-		if (std::isalpha(c)) {
-			identifier id(1, c);
-			while (std::isalpha(s[i]))
-				id += s[i++];
-
-			if (id == "in")
-				result.push_back(kwd_in());
-			else
-				result.push_back(id);
-		} else if (std::isspace(c)) {
-			continue;
-		} else {
-			auto t = lex_special(s, i, c);
-			if (t)
-				result.push_back(t.value());
-			else
-				break;
-		}
-	}
-
-	return result;
 }
 
 // Mathematical variable
@@ -161,31 +262,15 @@ struct predicates {
 	std::vector <predicate_variable_domain> domains;
 };
 
-template <typename F>
-struct __optional_returner : std::false_type {};
-
-template <typename R, typename ... Args>
-struct __optional_returner <std::function <std::optional <R> (Args...)>> : std::true_type {
-	using result = R;
-};
-
-#define hacked(T) *reinterpret_cast <T *> ((void *) nullptr)
-
-template <typename F>
-using optional_returner = __optional_returner <decltype(std::function(hacked(F)))>;
-
-template <typename F>
-constexpr bool optional_returner_v = optional_returner <F> ::value;
-
-template <typename F>
-concept parser = optional_returner_v <F>
+template <typename F, typename T>
+concept parser_fn = optional_returner_v <F>
 		&& requires(const F &f,
-			    const std::vector <Token> &tokens,
+			    const std::vector <T> &tokens,
 			    size_t &i) {
 	{ f(tokens, i) };
 };
 
-template <parser ... Fs>
+template <parser_fn <Token> ... Fs>
 struct parser_chain {
 	using result_t = std::tuple <typename optional_returner <Fs> ::result...>;
 
@@ -224,19 +309,19 @@ struct parser_chain {
 	}
 };
 
-template <parser ... Fs>
+template <parser_fn <Token> ... Fs>
 auto chain(const Fs &... args)
 {
 	return parser_chain(std::function(args)...);
 }
 
-template <parser F, bool EmptyOk, typename D = void>
+template <parser_fn <Token> F, bool EmptyOk, typename D = void>
 struct parser_loop {
 
 };
 
 // With a delimiter
-template <parser F, bool EmptyOk, parser D>
+template <parser_fn <Token> F, bool EmptyOk, parser_fn <Token> D>
 struct parser_loop <F, EmptyOk, D> {
 	using result_t = std::vector <typename optional_returner <F> ::result>;
 
@@ -269,7 +354,7 @@ struct parser_loop <F, EmptyOk, D> {
 	}
 };
 
-template <bool EmptyOk, parser F, parser D>
+template <bool EmptyOk, parser_fn <Token> F, parser_fn <Token> D>
 auto loop(const F &f, const D &d)
 {
 	auto ff = std::function(f);
@@ -292,19 +377,19 @@ std::optional <pure_variable> parse_pure_variable(const std::vector <Token> &tok
 	if (!tokens[i].is <sym_dollar> ())
 		return std::nullopt;
 
-	if (!tokens[i + 1].is <identifier> ()) {
+	if (!tokens[i + 1].is <misc_identifier> ()) {
 		howl_error("unexpected token '{}' in math mode", tokens[i + 1]);
 		return std::nullopt;
 	}
 
-	std::string s = tokens[i + 1].as <identifier> ();
+	std::string s = tokens[i + 1].as <misc_identifier> ();
 	i += 2;
 	return pure_variable(s);
 }
 
 std::optional <Expression> parse_expression(const std::vector <Token> &tokens, size_t &i)
 {
-	if (auto r = parse_token <identifier> (tokens, i)) {
+	if (auto r = parse_token <misc_identifier> (tokens, i)) {
 		std::string s = r.value();
 		return reference(s);
 	}
@@ -346,14 +431,17 @@ std::optional <predicates> parse_predicates(const std::vector <Token> &tokens, s
 
 int main()
 {
-	auto tokens = lex(source);
+	size_t index;
+	
+	index = 0;
+	auto tokens = oxidius_lexer(source, index).value();
 
-	howl_info("tokens: ");
+	fmt::print("tokens: ");
 	for (auto &t : tokens)
 		fmt::print("{} ", t);
 	fmt::print("\n");
 
-	size_t index = 0;
+	index = 0;
 	auto predicates = parse_predicates(tokens, index);
 
 	fmt::println("index: {}; next={}", index, tokens[index]);
