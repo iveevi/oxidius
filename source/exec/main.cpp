@@ -162,17 +162,17 @@ struct predicates {
 };
 
 template <typename F>
-struct optional_returner : std::false_type {};
+struct __optional_returner : std::false_type {};
 
 template <typename R, typename ... Args>
-struct optional_returner <std::optional <R> (Args...)> : std::true_type {
+struct __optional_returner <std::function <std::optional <R> (Args...)>> : std::true_type {
 	using result = R;
 };
 
-template <typename R, typename ... Args>
-struct optional_returner <std::function <std::optional <R> (Args...)>> : std::true_type {
-	using result = R;
-};
+#define hacked(T) *reinterpret_cast <T *> ((void *) nullptr)
+
+template <typename F>
+using optional_returner = __optional_returner <decltype(std::function(hacked(F)))>;
 
 template <typename F>
 constexpr bool optional_returner_v = optional_returner <F> ::value;
@@ -194,7 +194,7 @@ struct parser_chain {
 	parser_chain(const Fs &... fs_) : fs(fs_...) {}
 
 	template <size_t I>
-	bool eval_i(result_t &result, const std::vector <Token> &tokens, size_t &i) {
+	bool eval_i(result_t &result, const std::vector <Token> &tokens, size_t &i) const {
 		if constexpr (I >= sizeof...(Fs)) {
 			return true;
 		} else {
@@ -211,7 +211,7 @@ struct parser_chain {
 		}
 	}
 
-	std::optional <result_t> operator()(const std::vector <Token> &tokens, size_t &i) {
+	std::optional <result_t> operator()(const std::vector <Token> &tokens, size_t &i) const {
 		size_t c = i;
 		result_t result;
 
@@ -228,6 +228,53 @@ template <parser ... Fs>
 auto chain(const Fs &... args)
 {
 	return parser_chain(std::function(args)...);
+}
+
+template <parser F, bool EmptyOk, typename D = void>
+struct parser_loop {
+
+};
+
+// With a delimiter
+template <parser F, bool EmptyOk, parser D>
+struct parser_loop <F, EmptyOk, D> {
+	using result_t = std::vector <typename optional_returner <F> ::result>;
+
+	F f;
+	D d;
+
+	parser_loop(const F &f_, const D &d_) : f(f_), d(d_) {}
+
+	std::optional <result_t> operator()(const std::vector <Token> &tokens, size_t &i) const {
+		size_t c = i;
+		result_t result;
+
+		while (true) {
+			auto fv = f(tokens, i);
+			if (!fv) {
+				if (result.empty() && EmptyOk)
+					break;
+
+				i = c;
+				return std::nullopt;
+			}
+
+			result.push_back(fv.value());
+
+			if (!d(tokens, i))
+				break;
+		}
+
+		return result;
+	}
+};
+
+template <bool EmptyOk, parser F, parser D>
+auto loop(const F &f, const D &d)
+{
+	auto ff = std::function(f);
+	auto fd = std::function(d);
+	return parser_loop <decltype(ff), EmptyOk, decltype(fd)> (ff, fd);
 }
 
 template <typename T>
@@ -257,25 +304,24 @@ std::optional <pure_variable> parse_pure_variable(const std::vector <Token> &tok
 
 std::optional <Expression> parse_expression(const std::vector <Token> &tokens, size_t &i)
 {
-	if (!tokens[i].is <identifier> ())
-		return std::nullopt;
+	if (auto r = parse_token <identifier> (tokens, i)) {
+		std::string s = r.value();
+		return reference(s);
+	}
 
-	std::string s = tokens[i].as <identifier> (); 
-	i++;
-
-	return reference(s);
+	return std::nullopt;
 }
 
 std::optional <predicate_variable_domain> parse_predicate_domain(const std::vector <Token> &tokens, size_t &i)
 {
-	if (auto g = chain(parse_pure_variable,
+	if (auto r = chain(parse_pure_variable,
 			   parse_token <kwd_in>,
 			   parse_expression)(tokens, i)) {
-		auto gt = g.value();
+		auto v = r.value();
 
 		return predicate_variable_domain {
-			.var = std::get <0> (gt),
-			.domain = std::get <2> (gt),
+			.var = std::get <0> (v),
+			.domain = std::get <2> (v),
 		};
 	}
 
@@ -284,37 +330,18 @@ std::optional <predicate_variable_domain> parse_predicate_domain(const std::vect
 
 std::optional <predicates> parse_predicates(const std::vector <Token> &tokens, size_t &i)
 {
-	predicates result;
+	if (auto r = chain(parse_token <sym_left_brace>,
+			   loop <true> (parse_predicate_domain,
+			   		parse_token <sym_comma>),
+			   parse_token <sym_right_brace>)(tokens, i)) {
+		auto v = r.value();
 
-	// TODO: group (lbrace, loop(pure, delimiter=comma), rbrace)
-	size_t c = i;
-	if (!tokens[i].is <sym_left_brace> ())
-		return std::nullopt;
-
-	i++;
-	while (true) {
-		auto p = parse_predicate_domain(tokens, i);
-		if (!p) {
-			i = c;
-			return std::nullopt;
-		}
-
-		result.domains.push_back(p.value());
-
-		if (!tokens[i].is <sym_comma> ())
-			break;
-
-		i++;
+		return predicates {
+			.domains = std::get <1> (v)
+		};
 	}
 
-	if (!tokens[i].is <sym_right_brace> ()) {
-		howl_error("unexpected '{}' at the end of predicates", tokens[i]);
-		i = c;
-	}
-
-	i++;
-
-	return result;
+	return std::nullopt;
 }
 
 int main()
