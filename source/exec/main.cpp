@@ -1,6 +1,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <functional>
 
 #include <fmt/format.h>
 #include <fmt/printf.h>
@@ -136,8 +137,185 @@ std::vector <Token> lex(const std::string &s)
 	return result;
 }
 
-struct variable : std::string {};
+// Mathematical variable
+struct pure_variable : std::string {};
+
+struct pure_expression {};
+
+struct pure_statement {
+	pure_expression lhs;
+	pure_expression rhs;
+};
+
+// Programming variable
 struct reference : std::string {};
+
+using Expression = variant <pure_expression, reference>;
+
+struct predicate_variable_domain {
+	pure_variable var;
+	Expression domain;
+};
+
+struct predicates {
+	std::vector <predicate_variable_domain> domains;
+};
+
+template <typename F>
+struct optional_returner : std::false_type {};
+
+template <typename R, typename ... Args>
+struct optional_returner <std::optional <R> (Args...)> : std::true_type {
+	using result = R;
+};
+
+template <typename R, typename ... Args>
+struct optional_returner <std::function <std::optional <R> (Args...)>> : std::true_type {
+	using result = R;
+};
+
+template <typename F>
+constexpr bool optional_returner_v = optional_returner <F> ::value;
+
+template <typename F>
+concept parser = optional_returner_v <F>
+		&& requires(const F &f,
+			    const std::vector <Token> &tokens,
+			    size_t &i) {
+	{ f(tokens, i) };
+};
+
+template <parser ... Fs>
+struct parser_chain {
+	using result_t = std::tuple <typename optional_returner <Fs> ::result...>;
+
+	std::tuple <Fs...> fs;
+
+	parser_chain(const Fs &... fs_) : fs(fs_...) {}
+
+	template <size_t I>
+	bool eval_i(result_t &result, const std::vector <Token> &tokens, size_t &i) {
+		if constexpr (I >= sizeof...(Fs)) {
+			return true;
+		} else {
+			auto fv = std::get <I> (fs)(tokens, i);
+			if (!fv)
+				return false;
+
+			if (!eval_i <I + 1> (result, tokens, i))
+				return false;
+
+			std::get <I> (result) = fv.value();
+
+			return true;
+		}
+	}
+
+	std::optional <result_t> operator()(const std::vector <Token> &tokens, size_t &i) {
+		size_t c = i;
+		result_t result;
+
+		if (!eval_i <0> (result, tokens, i)) {
+			c = i;
+			return std::nullopt;
+		}
+
+		return result;
+	}
+};
+
+template <parser ... Fs>
+auto chain(const Fs &... args)
+{
+	return parser_chain(std::function(args)...);
+}
+
+template <typename T>
+requires (Token::type_index <T> () >= 0)
+std::optional <T> parse_token(const std::vector <Token> &tokens, size_t &i)
+{
+	if (!tokens[i].is <T> ())
+		return std::nullopt;
+
+	return tokens[i++].as <T> ();
+}
+
+std::optional <pure_variable> parse_pure_variable(const std::vector <Token> &tokens, size_t &i)
+{
+	if (!tokens[i].is <sym_dollar> ())
+		return std::nullopt;
+
+	if (!tokens[i + 1].is <identifier> ()) {
+		howl_error("unexpected token '{}' in math mode", tokens[i + 1]);
+		return std::nullopt;
+	}
+
+	std::string s = tokens[i + 1].as <identifier> ();
+	i += 2;
+	return pure_variable(s);
+}
+
+std::optional <Expression> parse_expression(const std::vector <Token> &tokens, size_t &i)
+{
+	if (!tokens[i].is <identifier> ())
+		return std::nullopt;
+
+	std::string s = tokens[i].as <identifier> (); 
+	i++;
+
+	return reference(s);
+}
+
+std::optional <predicate_variable_domain> parse_predicate_domain(const std::vector <Token> &tokens, size_t &i)
+{
+	if (auto g = chain(parse_pure_variable,
+			   parse_token <kwd_in>,
+			   parse_expression)(tokens, i)) {
+		auto gt = g.value();
+
+		return predicate_variable_domain {
+			.var = std::get <0> (gt),
+			.domain = std::get <2> (gt),
+		};
+	}
+
+	return std::nullopt;
+}
+
+std::optional <predicates> parse_predicates(const std::vector <Token> &tokens, size_t &i)
+{
+	predicates result;
+
+	// TODO: group (lbrace, loop(pure, delimiter=comma), rbrace)
+	size_t c = i;
+	if (!tokens[i].is <sym_left_brace> ())
+		return std::nullopt;
+
+	i++;
+	while (true) {
+		auto p = parse_predicate_domain(tokens, i);
+		if (!p) {
+			i = c;
+			return std::nullopt;
+		}
+
+		result.domains.push_back(p.value());
+
+		if (!tokens[i].is <sym_comma> ())
+			break;
+
+		i++;
+	}
+
+	if (!tokens[i].is <sym_right_brace> ()) {
+		howl_error("unexpected '{}' at the end of predicates", tokens[i]);
+		i = c;
+	}
+
+	i++;
+
+	return result;
+}
 
 int main()
 {
@@ -147,4 +325,13 @@ int main()
 	for (auto &t : tokens)
 		fmt::print("{} ", t);
 	fmt::print("\n");
+
+	size_t index = 0;
+	auto predicates = parse_predicates(tokens, index);
+
+	fmt::println("index: {}; next={}", index, tokens[index]);
+	fmt::println("domains:");
+	for (auto &pd : predicates->domains) {
+		fmt::println("\t{} -> {}", pd.var, pd.domain.as <reference> ());
+	}
 }
