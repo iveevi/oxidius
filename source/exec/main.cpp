@@ -87,36 +87,52 @@ auto construct = [](const auto &arg)
 	return __construct <T, Is...> (arg);
 };
 
+template <typename T, size_t ... Is>
+auto feed_construct = [](const auto &arg)
+{
+	return arg.feed(construct <T, Is...>);
+};
+
+template <typename F, typename G>
+constexpr auto compose(const F &f, const G &g)
+{
+	return [f, g](auto &&... args) -> decltype(auto) {
+        	return std::invoke(f, std::invoke(g, std::forward <decltype(args)> (args)...));
+	};
+}
+
+#define PRODUCTION(T) inline const std::function <bestd::optional <T> (const std::vector <Token> &, size_t &)>
+
 struct Parser : TokenParser <Token> {
-	PARSER(reference, Reference) {
-		return singlet <identifier> (tokens, i)
-			.feed(construct <Reference, 0>);
-	}
+	static PRODUCTION(Reference) reference = compose(
+		feed_construct <Reference, 0>,
+		singlet <identifier>
+	);
+	
+	static PRODUCTION(PureVariable) pure_variable = compose(
+		feed_construct <PureVariable, 0>,
+		singlet <identifier>
+	);
+	
+	static PRODUCTION(PureFactor) pure_factor = compose(
+		feed_construct <PureFactor>,
+		pure_variable
+	);
+	
+	static PRODUCTION(PureTerm) pure_term = compose(
+		feed_construct <PureTerm>,
+		pure_factor
+	);
 
-	PARSER(pure_variable, PureVariable) {
-		return singlet <identifier> (tokens, i)
-			.feed(construct <PureVariable, 0>);
-	}
-
-	PARSER(pure_factor, PureFactor) {
-		return pure_variable(tokens, i)
-			.feed(construct <PureFactor>);
-	}
-
-	PARSER(pure_term, PureTerm) {
-		return pure_factor(tokens, i)
-			.feed(construct <PureTerm>);
-	}
-
-	PARSER(pure_expression, PureExpression) {
-		return chain(pure_term, sym_plus(), pure_term)(tokens, i)
-			.feed(construct <PureExpression>);
-	}
-
-	PARSER(pure_statement, PureStatement) {
-		return chain(pure_expression, sym_equals(), pure_expression)(tokens, i)
-			.feed(construct <PureStatement, 0, 2>);
-	}
+	static PRODUCTION(PureExpression) pure_expression = compose(
+		feed_construct <PureExpression>,
+		chain(pure_term, sym_plus(), pure_term)
+	);
+	
+	static PRODUCTION(PureStatement) pure_statement = compose(
+		feed_construct <PureStatement>,
+		chain(pure_expression, sym_equals(), pure_expression)
+	);
 
 	PARSER(variable, Variable) {
 		// TODO: options
@@ -130,10 +146,11 @@ struct Parser : TokenParser <Token> {
 
 		return std::nullopt;
 	}
-	
-	PARSER(expression, Expression) {
-		return reference(tokens, i).feed(construct <Expression, 0>);
-	}
+
+	static PRODUCTION(Expression) expression = compose(
+		feed_construct <Expression, 0>,
+		reference
+	);
 
 	PARSER(statement, Statement) {
 		if (auto r = reference(tokens, i)) {
@@ -177,10 +194,10 @@ struct Parser : TokenParser <Token> {
 		return std::nullopt;
 	}
 
-	PARSER(import, Import) {
-		return chain(kwd_from(), identifier(), kwd_use(), identifier())(tokens, i)
-			.feed(construct <Import, 1, 3>);
-	}
+	static PRODUCTION(Import) import = compose(
+		feed_construct <Import, 1, 3>,
+		chain(kwd_from(), identifier(), kwd_use(), identifier())
+	);
 
 	PARSER(value, Value) {
 		// TODO: options
@@ -207,15 +224,15 @@ struct Parser : TokenParser <Token> {
 		return std::nullopt;
 	}
 
-	PARSER(assignment, Assignment) {
-		return chain(reference, sym_equals(), value)(tokens, i)
-			.feed(construct <Assignment, 0, 2>);
-	}
+	static PRODUCTION(Assignment) assignment = compose(
+		feed_construct <Assignment, 0, 2>,
+		chain(reference, sym_equals(), value)
+	);
 
-	PARSER(association, Association) {
-		return chain(statement, sym_double_colon(), predicates)(tokens, i)
-			.feed(construct <Association, 0, 2>);
-	}
+	static PRODUCTION(Association) association = compose(
+		feed_construct <Association, 0, 2>,
+		chain(statement, sym_double_colon(), predicates)
+	);
 };
 
 int main()
@@ -266,7 +283,7 @@ int main()
 		}
 	}
 
-	fmt::println("index={}; next={}", index, tokens[index]);
+	fmt::println("index: {}; next={}", index, tokens[index]);
 	
 	Parser::assignment(tokens, index);
 	
