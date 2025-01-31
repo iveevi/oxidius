@@ -25,11 +25,11 @@ struct identifier : std::string {
 // TODO: specify by regexes
 // i.e. \w for whitespace
 // i.e \a for alpha characters
-inline bestd::optional <null> lex_space(const std::string &source, size_t &i)
+inline bestd::optional <nabu::null> lex_space(const std::string &source, size_t &i)
 {
 	if (std::isspace(source[i])) {
 		i++;
-		return null();
+		return nabu::null();
 	}
 
 	return std::nullopt;
@@ -53,18 +53,18 @@ inline bestd::optional <identifier> lex_identifier(const std::string &source, si
 }
 
 static const auto oxidius_lexer = lexer(lex_space,
-	raw <"{", sym_left_brace>,
-	raw <"}", sym_right_brace>,
-	raw <"(", sym_left_paren>,
-	raw <")", sym_right_paren>,
-	raw <"$", sym_dollar>,
-	raw <"::", sym_double_colon>,
-	raw <"=", sym_equals>,
-	raw <"+", sym_plus>,
-	raw <",", sym_comma>,
-	raw <"in", kwd_in>,
-	raw <"use", kwd_use>,
-	raw <"from", kwd_from>,
+	nabu::raw <"{", sym_left_brace>,
+	nabu::raw <"}", sym_right_brace>,
+	nabu::raw <"(", sym_left_paren>,
+	nabu::raw <")", sym_right_paren>,
+	nabu::raw <"$", sym_dollar>,
+	nabu::raw <"::", sym_double_colon>,
+	nabu::raw <"=", sym_equals>,
+	nabu::raw <"+", sym_plus>,
+	nabu::raw <",", sym_comma>,
+	nabu::raw <"in", kwd_in>,
+	nabu::raw <"use", kwd_use>,
+	nabu::raw <"from", kwd_from>,
 	lex_identifier);
 
 using Token = typename decltype(oxidius_lexer)::element_t;

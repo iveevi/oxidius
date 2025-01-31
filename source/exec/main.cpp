@@ -76,7 +76,7 @@ T __construct(const A &arg)
 }
 
 template <typename T, size_t ... Is, typename ... Args>
-T __construct(const std::tuple <Args...> &arg)
+T __construct(const bestd::tuple <Args...> &arg)
 {
 	return T(std::get <Is> (arg)...);
 }
@@ -101,138 +101,54 @@ constexpr auto compose(const F &f, const G &g)
 	};
 }
 
+template <typename T, size_t ... Is, typename G>
+constexpr auto constructor(const G &g)
+{
+	return compose(feed_construct <T, Is...>, g);
+}
+
 #define PRODUCTION(T) inline const std::function <bestd::optional <T> (const std::vector <Token> &, size_t &)>
 
-struct Parser : TokenParser <Token> {
-	static PRODUCTION(Reference) reference = compose(
-		feed_construct <Reference, 0>,
-		singlet <identifier>
-	);
+struct Parser : nabu::TokenParser <Token> {
+	static PRODUCTION(Reference) reference = constructor <Reference, 0> (singlet <identifier>);
 	
-	static PRODUCTION(PureVariable) pure_variable = compose(
-		feed_construct <PureVariable, 0>,
-		singlet <identifier>
-	);
+	static PRODUCTION(PureVariable) pure_variable = constructor <PureVariable, 0> (singlet <identifier>);
 	
-	static PRODUCTION(PureFactor) pure_factor = compose(
-		feed_construct <PureFactor>,
-		pure_variable
-	);
+	static PRODUCTION(PureFactor) pure_factor = constructor <PureFactor> (pure_variable);
 	
-	static PRODUCTION(PureTerm) pure_term = compose(
-		feed_construct <PureTerm>,
-		pure_factor
-	);
+	static PRODUCTION(PureTerm) pure_term = constructor <PureTerm> (pure_factor);
 
-	static PRODUCTION(PureExpression) pure_expression = compose(
-		feed_construct <PureExpression>,
-		chain(pure_term, sym_plus(), pure_term)
-	);
+	static PRODUCTION(PureExpression) pure_expression = constructor <PureExpression> (chain(pure_term, sym_plus(), pure_term));
 	
-	static PRODUCTION(PureStatement) pure_statement = compose(
-		feed_construct <PureStatement>,
-		chain(pure_expression, sym_equals(), pure_expression)
-	);
+	static PRODUCTION(PureStatement) pure_statement = constructor <PureStatement> (chain(pure_expression, sym_equals(), pure_expression));
 
-	PARSER(variable, Variable) {
-		// TODO: options
-		if (auto r = reference(tokens, i)) {
-			std::string s = r.value();
-			return Reference(s);
-		} else if (auto r = chain(sym_dollar(), pure_variable)(tokens, i)) {
-			auto v = r.value();
-			return std::get <1> (v);
-		}
+	static PRODUCTION(Variable) __var_ref = constructor <Variable, 0> (reference);
+	static PRODUCTION(Variable) __var_pure = constructor <Variable, 1> (chain(sym_dollar(), pure_variable));
+	static PRODUCTION(Variable) variable = options(__var_ref, __var_pure);
 
-		return std::nullopt;
-	}
+	static PRODUCTION(Expression) expression = constructor <Expression, 0> (reference);
 
-	static PRODUCTION(Expression) expression = compose(
-		feed_construct <Expression, 0>,
-		reference
-	);
+	static PRODUCTION(Statement) __stmt_ref = constructor <Statement, 0> (reference);
+	static PRODUCTION(Statement) __stmt_pure = constructor <Statement, 2> (chain(sym_dollar(), sym_left_paren(), pure_statement, sym_right_paren()));
+	static PRODUCTION(Statement) statement = options(__stmt_ref, __stmt_pure);
 
-	PARSER(statement, Statement) {
-		if (auto r = reference(tokens, i)) {
-			std::string s = r.value();
-			return Reference(s);
-		} else if (auto r = chain(sym_dollar(),
-					  sym_left_paren(),
-					  pure_statement,
-					  sym_right_paren())(tokens, i)) {
-			auto v = r.value();
-			return std::get <2> (v);
-		}
+	static PRODUCTION(PurePredicateDomain) pure_predicate_domain = constructor <PurePredicateDomain, 0, 2> (chain(variable, kwd_in(), expression));
 
-		return std::nullopt;
-	}
+	static PRODUCTION(PurePredicates) pure_predicates = constructor <PurePredicates, 1> (chain(sym_left_brace(), loop <true> (pure_predicate_domain, sym_comma()), sym_right_brace()));
 
-	PARSER(pure_predicate_domain, PurePredicateDomain) {
-		if (auto r = chain(variable, kwd_in(), expression)(tokens, i)) {
-			auto v = r.value();
+	static PRODUCTION(Import) import = constructor <Import, 1, 3> (chain(kwd_from(), identifier(), kwd_use(), identifier()));
 
-			return PurePredicateDomain {
-				.var = std::get <0> (v),
-				.domain = std::get <2> (v),
-			};
-		}
+	static PRODUCTION(Value) __value_pred = constructor <Value, 0> (pure_predicates);
+	static PRODUCTION(Value) __value_statement = constructor <Value, 0> (statement);
+	static PRODUCTION(Value) value = options(__value_pred, __value_statement);
+	
+	static PRODUCTION(Predicates) __pred_ref = constructor <Predicates, 0> (reference);
+	static PRODUCTION(Predicates) __pred_pure = constructor <Predicates, 0> (pure_predicates);
+	static PRODUCTION(Predicates) predicates = options(__pred_ref, __pred_pure);
 
-		return std::nullopt;
-	}
+	static PRODUCTION(Assignment) assignment = constructor <Assignment, 0, 2> (chain(reference, sym_equals(), value));
 
-	PARSER(pure_predicates, PurePredicates) {
-		if (auto r = chain(sym_left_brace(),
-				loop <true> (pure_predicate_domain, sym_comma()),
-				sym_right_brace())(tokens, i)) {
-			auto v = r.value();
-
-			return PurePredicates {
-				.domains = std::get <1> (v)
-			};
-		}
-
-		return std::nullopt;
-	}
-
-	static PRODUCTION(Import) import = compose(
-		feed_construct <Import, 1, 3>,
-		chain(kwd_from(), identifier(), kwd_use(), identifier())
-	);
-
-	PARSER(value, Value) {
-		// TODO: options
-		if (auto r = pure_predicates(tokens, i)) {
-			auto v = r.value();
-			return Value(v);
-		} else if (auto r = statement(tokens, i)) {
-			auto v = r.value();
-			return Value(v);
-		}
-
-		return std::nullopt;
-	}
-
-	PARSER(predicates, Predicates) {
-		if (auto r = reference(tokens, i)) {
-			auto v = r.value();
-			return Predicates(v);
-		} else if (auto r = pure_predicates(tokens, i)) {
-			auto v = r.value();
-			return Predicates(v);
-		}
-
-		return std::nullopt;
-	}
-
-	static PRODUCTION(Assignment) assignment = compose(
-		feed_construct <Assignment, 0, 2>,
-		chain(reference, sym_equals(), value)
-	);
-
-	static PRODUCTION(Association) association = compose(
-		feed_construct <Association, 0, 2>,
-		chain(statement, sym_double_colon(), predicates)
-	);
+	static PRODUCTION(Association) association = constructor <Association, 0, 2> (chain(statement, sym_double_colon(), predicates));
 };
 
 int main()
