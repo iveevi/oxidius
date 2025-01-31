@@ -182,12 +182,6 @@ struct parser_chain {
 	}
 };
 
-template <typename Token, parser_fn <Token> ... Fs>
-auto chain(const Fs &... args)
-{
-	return parser_chain <Token, decltype(std::function(hacked(Fs)))...> (std::function(args)...);
-}
-
 template <typename Token, parser_fn <Token> F, bool EmptyOk, typename D = void>
 struct parser_loop {
 
@@ -227,14 +221,6 @@ struct parser_loop <Token, F, EmptyOk, D> {
 	}
 };
 
-template <typename Token, bool EmptyOk, parser_fn <Token> F, parser_fn <Token> D>
-auto loop(const F &f, const D &d)
-{
-	auto ff = std::function(f);
-	auto fd = std::function(d);
-	return parser_loop <Token, decltype(ff), EmptyOk, decltype(fd)> (ff, fd);
-}
-
 template <typename Token, typename T>
 requires (Token::template type_index <T> () >= 0)
 std::optional <T> parse_token(const std::vector <Token> &tokens, size_t &i)
@@ -244,3 +230,25 @@ std::optional <T> parse_token(const std::vector <Token> &tokens, size_t &i)
 
 	return tokens[i++].template as <T> ();
 }
+
+
+// Token 'namespace'-d operations for syntactic sugar
+template <typename Token>
+struct TokenParser {
+	template <typename T>
+	static auto singlet(const std::vector <Token> &tokens, size_t &i) {
+		return parse_token <Token, T> (tokens, i);
+	}
+
+	template <parser_fn <Token> ... Fs>
+	static auto chain(const Fs &... fs) {
+		return parser_chain <Token, decltype(std::function(hacked(Fs)))...> (std::function(fs)...);
+	}
+
+	template <bool EmptyOk, parser_fn <Token> F, parser_fn <Token> D>
+	static auto loop(const F &f, const D &d) {
+		auto ff = std::function(f);
+		auto fd = std::function(d);
+		return parser_loop <Token, decltype(ff), EmptyOk, decltype(fd)> (ff, fd);
+	}
+};
