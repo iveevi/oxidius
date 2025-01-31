@@ -25,7 +25,7 @@ struct identifier : std::string {
 // TODO: specify by regexes
 // i.e. \w for whitespace
 // i.e \a for alpha characters
-inline std::optional <null> lex_space(const std::string &source, size_t &i)
+inline bestd::optional <null> lex_space(const std::string &source, size_t &i)
 {
 	if (std::isspace(source[i])) {
 		i++;
@@ -35,7 +35,7 @@ inline std::optional <null> lex_space(const std::string &source, size_t &i)
 	return std::nullopt;
 }
 
-inline std::optional <identifier> lex_identifier(const std::string &source, size_t &i)
+inline bestd::optional <identifier> lex_identifier(const std::string &source, size_t &i)
 {
 	size_t j = i;
 

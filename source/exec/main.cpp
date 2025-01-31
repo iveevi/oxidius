@@ -28,9 +28,9 @@ struct PureStatement {
 // Programming variable
 struct Reference : std::string {};
 
-using Variable = variant <PureVariable, Reference>;
-using Expression = variant <PureExpression, Reference>;
-using Statement = variant <PureStatement, Reference>;
+using Variable = bestd::variant <PureVariable, Reference>;
+using Expression = bestd::variant <PureExpression, Reference>;
+using Statement = bestd::variant <PureStatement, Reference>;
 
 struct PurePredicateDomain {
 	Variable var;
@@ -41,7 +41,7 @@ struct PurePredicates {
 	std::vector <PurePredicateDomain> domains;
 };
 
-using Predicates = variant <PurePredicates, Reference>;
+using Predicates = bestd::variant <PurePredicates, Reference>;
 
 struct Import {
 	std::string package;
@@ -51,7 +51,7 @@ struct Import {
 
 // Variable values
 // TODO: options(...)
-struct Value : variant <PurePredicates, Statement> {};
+struct Value : bestd::variant <PurePredicates, Statement> {};
 
 struct Assignment {
 	Reference destination;
@@ -64,67 +64,62 @@ struct Association {
 	Predicates predicates;
 };
 
-#define PARSER(F, T) static std::optional <T> F(const std::vector <Token> &tokens, size_t &i)
+#define PARSER(F, T) static bestd::optional <T> F(const std::vector <Token> &tokens, size_t &i)
+
+template <typename T, size_t ... Is, typename A>
+T __construct(const A &arg)
+{
+	if constexpr (sizeof...(Is) > 0)
+		return T(arg);
+	else
+		return T();
+}
+
+template <typename T, size_t ... Is, typename ... Args>
+T __construct(const std::tuple <Args...> &arg)
+{
+	return T(std::get <Is> (arg)...);
+}
+
+template <typename T, size_t ... Is>
+auto construct = [](const auto &arg)
+{
+	return __construct <T, Is...> (arg);
+};
 
 struct Parser : TokenParser <Token> {
 	PARSER(reference, Reference) {
-		if (auto r = singlet <identifier> (tokens, i)) {
-			auto v = r.value();
-			return Reference(v);
-		}
-
-		return std::nullopt;
+		return singlet <identifier> (tokens, i)
+			.feed(construct <Reference, 0>);
 	}
 
 	PARSER(pure_variable, PureVariable) {
-		if (tokens[i].is <identifier> ()) {
-			std::string s = tokens[i++].as <identifier> ();
-			return PureVariable(s);
-		}
-
-		return std::nullopt;
+		return singlet <identifier> (tokens, i)
+			.feed(construct <PureVariable, 0>);
 	}
 
 	PARSER(pure_factor, PureFactor) {
-		if (auto r = pure_variable(tokens, i)) {
-			return PureFactor();
-		}
-
-		return std::nullopt;
+		return pure_variable(tokens, i)
+			.feed(construct <PureFactor>);
 	}
 
 	PARSER(pure_term, PureTerm) {
-		if (auto r = pure_factor(tokens, i)) {
-			return PureTerm();
-		}
-
-		return std::nullopt;
+		return pure_factor(tokens, i)
+			.feed(construct <PureTerm>);
 	}
 
 	PARSER(pure_expression, PureExpression) {
-		if (auto r = chain(pure_term, sym_plus(), pure_term)(tokens, i)) {
-			return PureExpression();
-		}
-
-		return std::nullopt;
+		return chain(pure_term, sym_plus(), pure_term)(tokens, i)
+			.feed(construct <PureExpression>);
 	}
 
 	PARSER(pure_statement, PureStatement) {
-		if (auto r = chain(pure_expression,
-				   sym_equals(),
-				   pure_expression)(tokens, i)) {
-			auto v = r.value();
-
-			return PureStatement {
-				.lhs = std::get <0> (v),
-				.rhs = std::get <2> (v),
-			};
-		}
-
-		return std::nullopt;
+		return chain(pure_expression, sym_equals(), pure_expression)(tokens, i)
+			.feed(construct <PureStatement, 0, 2>);
 	}
 
 	PARSER(variable, Variable) {
+		// TODO: options
 		if (auto r = reference(tokens, i)) {
 			std::string s = r.value();
 			return Reference(s);
@@ -137,12 +132,7 @@ struct Parser : TokenParser <Token> {
 	}
 	
 	PARSER(expression, Expression) {
-		if (auto r = reference(tokens, i)) {
-			std::string s = r.value();
-			return Reference(s);
-		}
-
-		return std::nullopt;
+		return reference(tokens, i).feed(construct <Expression, 0>);
 	}
 
 	PARSER(statement, Statement) {
@@ -174,7 +164,6 @@ struct Parser : TokenParser <Token> {
 	}
 
 	PARSER(pure_predicates, PurePredicates) {
-		// TODO: special optional (bestd) with .feed(...) -> Value
 		if (auto r = chain(sym_left_brace(),
 				loop <true> (pure_predicate_domain, sym_comma()),
 				sym_right_brace())(tokens, i)) {
@@ -189,19 +178,8 @@ struct Parser : TokenParser <Token> {
 	}
 
 	PARSER(import, Import) {
-		if (auto r = chain(kwd_from(),
-				   identifier(),
-				   kwd_use(),
-				   identifier())(tokens, i)) {
-			auto v = r.value();
-
-			return Import {
-				.package = std::get <1> (v),
-				.items = std::get <3> (v),
-			};
-		}
-
-		return std::nullopt;
+		return chain(kwd_from(), identifier(), kwd_use(), identifier())(tokens, i)
+			.feed(construct <Import, 1, 3>);
 	}
 
 	PARSER(value, Value) {
@@ -230,27 +208,13 @@ struct Parser : TokenParser <Token> {
 	}
 
 	PARSER(assignment, Assignment) {
-		if (auto r = chain(reference, sym_equals(), value)(tokens, i)) {
-			auto v = r.value();
-			return Assignment {
-				.destination = std::get <0> (v),
-				.value = std::get <2> (v),
-			};
-		}
-
-		return std::nullopt;
+		return chain(reference, sym_equals(), value)(tokens, i)
+			.feed(construct <Assignment, 0, 2>);
 	}
 
 	PARSER(association, Association) {
-		if (auto r = chain(statement, sym_double_colon(), predicates)(tokens, i)) {
-			auto v = r.value();
-			return Association {
-				.statement = std::get <0> (v),
-				.predicates = std::get <2> (v),
-			};
-		}
-
-		return std::nullopt;
+		return chain(statement, sym_double_colon(), predicates)(tokens, i)
+			.feed(construct <Association, 0, 2>);
 	}
 };
 
