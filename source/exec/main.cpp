@@ -7,8 +7,7 @@
 
 #include <howler.hpp>
 
-#include "common/variant.hpp"
-#include "common/nabu.hpp"
+#include <nabu/nabu.hpp>
 
 std::string source = R"(
 { $a in Real, $b in Real } := $(a + b = b + a)
@@ -36,6 +35,9 @@ struct misc_identifier : std::string {
 	misc_identifier(const std::string &s) : std::string(s) {}
 };
 
+// TODO: specify by regexes
+// i.e. \w for whitespace
+// i.e \a for alpha characters
 std::optional <null> space(const std::string &source, size_t &i)
 {
 	if (std::isspace(source[i])) {

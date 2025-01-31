@@ -22,4 +22,6 @@ add_executable(oxidius source/exec/main.cpp)
 
 target_link_libraries(oxidius fmt howler)
 
-include_directories(oxidius source)
+include_directories(oxidius
+	source
+	thirdparty)
