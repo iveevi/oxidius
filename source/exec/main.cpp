@@ -84,18 +84,32 @@ PureFactor::PureFactor(const PureExpression &expr) : pure_factor_base(std::make_
 
 NABU_UTILITIES(Token)
 
+const auto &from = singlet <kwd_from>;
+const auto &use = singlet <kwd_use>;
+const auto &in = singlet <kwd_in>;
+const auto &ident = singlet <identifier>;
+const auto &equals = singlet <sym_equals>;
+constexpr auto &comma = singlet <sym_comma>;
+constexpr auto &double_colon = singlet <sym_double_colon>;
+constexpr auto &plus = singlet <sym_plus>;
+constexpr auto &dollar = singlet <sym_dollar>;
+constexpr auto &lparen = singlet <sym_left_paren>;
+constexpr auto &rparen = singlet <sym_right_paren>;
+constexpr auto &lbrace = singlet <sym_left_brace>;
+constexpr auto &rbrace = singlet <sym_right_brace>;
+
 // Forward declaring roots of recursive grammars
 extern production <PureExpression> pure_expression;
 
 // reference := identifier
-auto reference = convert <singlet <identifier>, Reference>;
+auto reference = convert <ident, Reference>;
 
 // pure_variable := identifier
-auto pure_variable = convert <singlet <identifier>, PureVariable>;
+auto pure_variable = convert <ident, PureVariable>;
 
 // pure_variable := pure_variable
 auto pure_factor = options <
-	convert <chain <singlet <sym_left_paren>, &pure_expression, singlet <sym_right_paren>>, PureFactor, 1>,
+	convert <chain <lparen, &pure_expression, rparen>, PureFactor, 1>,
 	convert <&pure_variable, PureFactor>
 >;
 
@@ -103,31 +117,31 @@ auto pure_factor = options <
 auto pure_term = convert <&pure_factor, PureTerm>;
 
 // pure_statement := pure_expression '=' pure_expression
-auto pure_statement = convert <chain <&pure_expression, singlet <sym_equals>, &pure_expression>, PureStatement, 0, 2>;
+auto pure_statement = convert <chain <&pure_expression, equals, &pure_expression>, PureStatement, 0, 2>;
 
 // variable := reference | '$' pure_variable
 auto variable = options <
 	convert <&reference, Variable>,
-	convert <chain <singlet <sym_dollar>, &pure_variable>, Variable, 1>
+	convert <chain <dollar, &pure_variable>, Variable, 1>
 >;
 
 // expression := reference
 auto expression = options <
-	convert <chain <singlet <sym_dollar>, singlet <sym_left_paren>, &pure_expression, singlet <sym_right_paren>>, Expression, 2>,
+	convert <chain <dollar, lparen, &pure_expression, rparen>, Expression, 2>,
 	convert <&reference, Expression>
 >;
 
 // statement := reference | '$' '(' pure_statement ')'
 auto statement = options <
-	convert <chain <singlet <sym_dollar>, singlet <sym_left_paren>, &pure_statement, singlet <sym_right_paren>>, Statement, 2>,
+	convert <chain <dollar, lparen, &pure_statement, rparen>, Statement, 2>,
 	convert <&reference, Statement>
 >;
 
 // pure_predicate_domain := variable 'in' expression
-auto pure_predicate_domain = convert <chain <&variable, singlet <kwd_in>, &expression>, PurePredicateDomain, 0, 2>;
+auto pure_predicate_domain = convert <chain <&variable, in, &expression>, PurePredicateDomain, 0, 2>;
 
 // pure_predicates := '{' ( pure_predicate_domain ','? )* '}'
-auto pure_predicates = convert <chain <singlet <sym_left_brace>, loop <&pure_predicate_domain, singlet <sym_comma>>, singlet <sym_right_brace>>, PurePredicates, 1>;
+auto pure_predicates = convert <chain <lbrace, loop <&pure_predicate_domain, comma>, rbrace>, PurePredicates, 1>;
 
 // predicates := reference | pure_predicates
 auto predicates = options <
@@ -136,10 +150,10 @@ auto predicates = options <
 >;
 
 // import := 'from' identifier 'use' identifier
-auto import = convert <chain <singlet <kwd_from>, singlet <identifier>, singlet <kwd_use>, singlet <identifier>>, Import, 1, 3>;
+auto import = convert <chain <from, ident, use, ident>, Import, 1, 3>;
 
 // association := statement '::' predicates
-auto association = convert <chain <&statement, singlet <sym_double_colon>, &predicates>, Association, 0, 2>;
+auto association = convert <chain <&statement, double_colon, &predicates>, Association, 0, 2>;
 
 // value := association | reference | pure_predicates | statement
 auto value = options <
@@ -150,7 +164,7 @@ auto value = options <
 >;
 
 // assignment := reference '=' value
-auto assignment = convert <chain <&reference, singlet <sym_equals>, &value>, Assignment, 0, 2>;
+auto assignment = convert <chain <&reference, equals, &value>, Assignment, 0, 2>;
 
 // instruction := import | assignment | value
 auto instruction = options <
@@ -162,7 +176,7 @@ auto instruction = options <
 // pure_expression := pure_term '+' pure_term
 //                   | pure_term
 production <PureExpression> pure_expression = options <
-	convert <chain <&pure_term, singlet <sym_plus>, &pure_term>, PureExpression, 0>,
+	convert <chain <&pure_term, plus, &pure_term>, PureExpression, 0>,
 	convert <&pure_term, PureExpression>
 >;
 
