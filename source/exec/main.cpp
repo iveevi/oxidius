@@ -67,7 +67,7 @@ struct Association {
 	Predicates predicates;
 };
 
-struct Value : bestd::variant <PurePredicates, Statement, Association> {};
+struct Value : bestd::variant <Reference, Predicates, Statement, Association> {};
 
 struct Assignment {
 	Reference destination;
@@ -82,135 +82,111 @@ PureFactor::PureFactor(const PureExpression &expr) : pure_factor_base(std::make_
 // Parser grammar specification //
 //////////////////////////////////
 
-// #define PRODUCTION(T) inline std::function <bestd::optional <T> (const std::vector <Token> &, size_t &)>
+NABU_UTILITIES(Token)
 
-// #define INLINE_PRODUCTION(T) std::function <bestd::optional <T> (const std::vector <Token> &, size_t &)>
+// Forward declaring roots of recursive grammars
+extern production <PureExpression> pure_expression;
 
-// struct Parser : nabu::TokenParser <Token> {
-// 	// reference := identifier
-// 	static PRODUCTION(Reference) reference = nabu::constructor <Reference, 0> (singlet <identifier>);
-	
-// 	// pure_variable := identifier
-// 	static PRODUCTION(PureVariable) pure_variable = nabu::constructor <PureVariable, 0> (singlet <identifier>);
-	
-// 	// pure_variable := pure_variable
-// 	static bestd::optional <PureFactor> pure_factor(const std::vector <Token> &, size_t &);
-	
-// 	// pure_term := pure_factor
-// 	static PRODUCTION(PureTerm) pure_term = nabu::constructor <PureTerm> (pure_factor);
+// reference := identifier
+auto reference = convert <singlet <identifier>, Reference>;
 
-// 	// pure_expression := pure_term '+' pure_term
-// 	//                   | pure_term
-// 	static PRODUCTION(PureExpression) __pexpr_plus = nabu::constructor <PureExpression> (chain(pure_term, singlet <sym_plus>, pure_term));
-// 	static PRODUCTION(PureExpression) __pexpr_solo = nabu::constructor <PureExpression> (pure_term);
-// 	static PRODUCTION(PureExpression) pure_expression = options(__pexpr_plus, __pexpr_solo);
-	
-// 	// pure_statement := pure_expression '=' pure_expression
-// 	static PRODUCTION(PureStatement) pure_statement = nabu::constructor <PureStatement> (chain(pure_expression, singlet <sym_equals>, pure_expression));
+// pure_variable := identifier
+auto pure_variable = convert <singlet <identifier>, PureVariable>;
 
-// 	// variable := reference | pure_variable
-// 	static PRODUCTION(Variable) __var_ref = nabu::constructor <Variable, 0> (reference);
-// 	static PRODUCTION(Variable) __var_pure = nabu::constructor <Variable, 1> (chain(singlet <sym_dollar>, pure_variable));
-// 	static PRODUCTION(Variable) variable = options(__var_ref, __var_pure);
-
-// 	// expression := reference
-// 	static PRODUCTION(Expression) expression = nabu::constructor <Expression, 0> (reference);
-
-// 	// statement := reference | '$' '(' pure_statement ')'
-// 	static PRODUCTION(Statement) __stmt_ref = nabu::constructor <Statement, 0> (reference);
-// 	static PRODUCTION(Statement) __stmt_pure = nabu::constructor <Statement, 2> (chain(singlet <sym_dollar>, singlet <sym_left_paren>, pure_statement, singlet <sym_right_paren>));
-// 	static PRODUCTION(Statement) statement = options(__stmt_ref, __stmt_pure);
-
-// 	// pure_predicate_domain := variable 'in' expression
-// 	static PRODUCTION(PurePredicateDomain) pure_predicate_domain = nabu::constructor <PurePredicateDomain, 0, 2> (chain(variable, singlet <kwd_in>, expression));
-
-// 	// pure_predicates := '{' ( pure_predicate_domain ','? )* '}'
-// 	static PRODUCTION(PurePredicates) pure_predicates = nabu::constructor <PurePredicates, 1> (chain(singlet <sym_left_brace>, loop <true> (pure_predicate_domain, singlet <sym_comma>), singlet <sym_right_brace>));
-	
-// 	// predicates := reference | pure_predicates
-// 	static PRODUCTION(Predicates) __pred_ref = nabu::constructor <Predicates, 0> (reference);
-// 	static PRODUCTION(Predicates) __pred_pure = nabu::constructor <Predicates, 0> (pure_predicates);
-// 	static PRODUCTION(Predicates) predicates = options(__pred_ref, __pred_pure);
-
-// 	// import := 'from' identifier 'use' identifier
-// 	static PRODUCTION(Import) import = nabu::constructor <Import, 1, 3> (chain(singlet <kwd_from>, singlet <identifier>, singlet <kwd_use>, singlet <identifier>));
-
-// 	// association := statement '::' predicates
-// 	static PRODUCTION(Association) association = nabu::constructor <Association, 0, 2> (chain(statement, singlet <sym_double_colon>, predicates));
-
-// 	// TODO: reference
-// 	// value := association | pure_predicates | statement
-// 	static PRODUCTION(Value) __value_association = nabu::constructor <Value, 0> (association);
-// 	static PRODUCTION(Value) __value_pred = nabu::constructor <Value, 0> (pure_predicates);
-// 	static PRODUCTION(Value) __value_statement = nabu::constructor <Value, 0> (statement);
-// 	static PRODUCTION(Value) value = options(__value_association, __value_pred, __value_statement);
-
-// 	// assignment := reference '=' value
-// 	static PRODUCTION(Assignment) assignment = nabu::constructor <Assignment, 0, 2> (chain(reference, singlet <sym_equals>, value));
-
-// 	// instruction := import | assignment | value
-// 	static PRODUCTION(Instruction) __inst_import = nabu::constructor <Instruction, 0> (import);
-// 	static PRODUCTION(Instruction) __inst_assignment = nabu::constructor <Instruction, 0> (assignment);
-// 	static PRODUCTION(Instruction) __inst_value = nabu::constructor <Instruction, 0> (value);
-// 	static PRODUCTION(Instruction) instruction = options(__inst_import, __inst_assignment, __inst_value);
-// };
-
-// bestd::optional <PureFactor> Parser::pure_factor(const std::vector <Token> &tokens, size_t &i)
-// {
-// 	static INLINE_PRODUCTION(PureFactor) __factor_expr = nabu::constructor <PureFactor> (chain(singlet <sym_left_paren>, pure_expression, singlet <sym_right_paren>));
-// 	static INLINE_PRODUCTION(PureFactor) __factor_var = nabu::constructor <PureFactor> (pure_variable);
-// 	return options(__factor_expr, __factor_var)(tokens, i);
-// }
-
-template <typename T>
-constexpr auto singlet = nabu::singlet <Token, T>;
-
-template <auto ... fs>
-auto &tchain = nabu::chain <Token, fs...>;
-
-template <auto ... fs>
-auto &toptions = nabu::options <Token, fs...>;
-
-#define PRODUCTION(T, name) bestd::optional <T> (*name)(const std::vector <Token> &, size_t &)
-
-extern PRODUCTION(PureExpression, pure_expression);
-
-auto pure_variable = nabu::convert <singlet <identifier>, PureVariable>;
-
-auto pure_factor = toptions <
-	nabu::convert <tchain <singlet <sym_left_paren>,
-			&pure_expression,
-			singlet <sym_right_paren>
-		>,
-		PureFactor, 1
-	>,
-	nabu::convert <&pure_variable, PureFactor>
+// pure_variable := pure_variable
+auto pure_factor = options <
+	convert <chain <singlet <sym_left_paren>, &pure_expression, singlet <sym_right_paren>>, PureFactor, 1>,
+	convert <&pure_variable, PureFactor>
 >;
 
-auto pure_term = nabu::convert <&pure_factor, PureTerm>;
+// pure_term := pure_factor
+auto pure_term = convert <&pure_factor, PureTerm>;
 
-PRODUCTION(PureExpression, pure_expression) = toptions <
-	nabu::convert <tchain <&pure_term,
-			singlet <sym_plus>,
-			&pure_term
-		>,
-		PureExpression, 0
-	>,
-	nabu::convert <&pure_term, PureExpression>
+// pure_statement := pure_expression '=' pure_expression
+auto pure_statement = convert <chain <&pure_expression, singlet <sym_equals>, &pure_expression>, PureStatement, 0, 2>;
+
+// variable := reference | '$' pure_variable
+auto variable = options <
+	convert <&reference, Variable>,
+	convert <chain <singlet <sym_dollar>, &pure_variable>, Variable, 1>
+>;
+
+// expression := reference
+auto expression = options <
+	convert <chain <singlet <sym_dollar>, singlet <sym_left_paren>, &pure_expression, singlet <sym_right_paren>>, Expression, 2>,
+	convert <&reference, Expression>
+>;
+
+// statement := reference | '$' '(' pure_statement ')'
+auto statement = options <
+	convert <chain <singlet <sym_dollar>, singlet <sym_left_paren>, &pure_statement, singlet <sym_right_paren>>, Statement, 2>,
+	convert <&reference, Statement>
+>;
+
+// pure_predicate_domain := variable 'in' expression
+auto pure_predicate_domain = convert <chain <&variable, singlet <kwd_in>, &expression>, PurePredicateDomain, 0, 2>;
+
+// pure_predicates := '{' ( pure_predicate_domain ','? )* '}'
+auto pure_predicates = convert <chain <singlet <sym_left_brace>, loop <&pure_predicate_domain, singlet <sym_comma>>, singlet <sym_right_brace>>, PurePredicates, 1>;
+
+// predicates := reference | pure_predicates
+auto predicates = options <
+	convert <&reference, Predicates>,
+	convert <&pure_predicates, Predicates>
+>;
+
+// import := 'from' identifier 'use' identifier
+auto import = convert <chain <singlet <kwd_from>, singlet <identifier>, singlet <kwd_use>, singlet <identifier>>, Import, 1, 3>;
+
+// association := statement '::' predicates
+auto association = convert <chain <&statement, singlet <sym_double_colon>, &predicates>, Association, 0, 2>;
+
+// value := association | reference | pure_predicates | statement
+auto value = options <
+	convert <&association, Value>,
+	convert <&reference, Value>,
+	convert <&predicates, Value>,
+	convert <&statement, Value>
+>;
+
+// assignment := reference '=' value
+auto assignment = convert <chain <&reference, singlet <sym_equals>, &value>, Assignment, 0, 2>;
+
+// instruction := import | assignment | value
+auto instruction = options <
+	convert <&import, Instruction>,
+	convert <&assignment, Instruction>,
+	convert <&value, Instruction>
+>;
+
+// pure_expression := pure_term '+' pure_term
+//                   | pure_term
+production <PureExpression> pure_expression = options <
+	convert <chain <&pure_term, singlet <sym_plus>, &pure_term>, PureExpression, 0>,
+	convert <&pure_term, PureExpression>
 >;
 
 int main()
 {
-	std::string source = R"(a + (a + b))";
+	std::string source = R"(
+	reference
+	
+	from std use Real
+
+	$(a + b = a + (b + c))
+	
+	$(a + b = b + a) :: { $a in Real, $b in Real }
+
+	statement = $(a + b = b + a)
+	predicate = { $a in Real, $b in Real }
+
+	statement :: predicate
+	)";
 
 	size_t index;
 	
 	index = 0;
-	auto token_bases = oxidius_lexer(source, index).value();
-
-	auto tokens = std::vector <Token> ();
-	for (auto &t : token_bases)
-		tokens.push_back(t);
+	auto tokens = oxidius_lexer(source, index).value();
 
 	fmt::print("tokens: ");
 	for (auto &t : tokens)
@@ -218,18 +194,6 @@ int main()
 	fmt::print("\n");
 
 	index = 0;
-
-	auto i = pure_expression(tokens, index);
-	fmt::println("i? {}, index {}/{}", i.has_value(), index, tokens.size());
-
-	// Parser::pure_expression(tokens, index);
-	// fmt::println("index={}, next={}", index, tokens[index]);
-
-	// fmt::println("h(4) = {}", h(4, 1));
-
-	// while (auto v = Parser::instruction(tokens, index))
-	// 	fmt::println("instruction[{}], index={}, next={}", v.value().index(), index, tokens[index]);
-	
-	// while (auto v = Parser::statement(tokens, index))
-	// 	fmt::println("statement[{}], index={}, next={}", v.value().index(), index, tokens[index]);
+	while (auto v = instruction(tokens, index))
+		fmt::println("instruction[{}], index={}, next={}", v.value().index(), index, tokens[index]);
 }

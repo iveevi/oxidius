@@ -67,13 +67,7 @@ static const auto oxidius_lexer = lexer(lex_space,
 	nabu::raw <"from", kwd_from>,
 	lex_identifier);
 
-using token_base = typename decltype(oxidius_lexer)::element_t;
-
-struct Token : token_base {
-	using token_base::token_base;
-
-	Token(const token_base &t) : token_base(t) {}
-};
+using Token = typename decltype(oxidius_lexer)::element_t;
 
 inline std::string format_as(const Token &token)
 {
