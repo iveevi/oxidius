@@ -5,7 +5,7 @@
 #include <fmt/format.h>
 #include <fmt/printf.h>
 
-#include <howler.hpp>
+#include <howler/howler.hpp>
 
 #include "token.hpp"
 
@@ -202,12 +202,12 @@ int main()
 	index = 0;
 	auto tokens = oxidius_lexer(source, index).value();
 
-	fmt::print("tokens: ");
+	howl_info("tokens: ");
 	for (auto &t : tokens)
 		fmt::print("{} ", t);
 	fmt::print("\n");
 
 	index = 0;
 	while (auto v = instruction(tokens, index))
-		fmt::println("instruction[{}], index={}, next={}", v.value().index(), index, tokens[index]);
+		howl_info("instruction[{}], index={}, next={}", v.value().index(), index, tokens[index]);
 }

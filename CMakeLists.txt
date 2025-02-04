@@ -12,11 +12,9 @@ FetchContent_Declare(fmt
 	GIT_TAG master)
 FetchContent_MakeAvailable(fmt)
 
-# Howler for consistent logging
-FetchContent_Declare(howler
-	GIT_REPOSITORY https://github.com/iveevi/howler.git
-	GIT_TAG main)
-FetchContent_MakeAvailable(howler)
+add_compile_definitions(HOWLER_PREFIX="oxidius")
+
+add_subdirectory(thirdparty/howler)
 
 add_executable(oxidius source/exec/main.cpp)
 

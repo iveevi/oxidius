@@ -4,3 +4,6 @@
 [submodule "thirdparty/bestd"]
 	path = thirdparty/bestd
 	url = https://github.com/iveevi/bestd.git
+[submodule "thirdparty/howler"]
+	path = thirdparty/howler
+	url = https://github.com/iveevi/howler.git
