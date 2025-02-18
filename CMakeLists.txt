@@ -10,7 +10,9 @@ set(HOWLER_FMT_EXTERNAL TRUE)
 add_subdirectory(thirdparty/fmt)
 add_subdirectory(thirdparty/howler)
 
-add_executable(oxidius source/exec/main.cpp)
+add_executable(oxidius
+	source/exec/main.cpp
+	source/exec/grammar.cpp)
 
 target_link_libraries(oxidius fmt howler)
 
